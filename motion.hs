@@ -1,4 +1,5 @@
 import Vector
+import qualified Data.Map.Strict as Map
 
 type Vec a = Vec2D a
 type R = Double
@@ -29,7 +30,10 @@ data Setup = Setup { particles :: [Particle], potentialForce :: ForceFunc, links
 strain maxLen potentialForce radius = if abs radius >= maxLen && projection < 0 then -projection * unit radius else pure 0 where
     projection = proj potentialForce radius
 
-
+stringLengths :: [Particle] -> [(Int, Int)] -> Map.Map (Int, Int) R
+stringLengths particles links = Map.fromList $ compute links <> compute (map swap links) where
+    compute links = zip links (map computeLength links)
+    computeLength (idx1, idx2) = vabs particles!!idx1 particles!!idx2
 
 main = do
     s = Setup particles (ForceFunc coulombForce) linked where
