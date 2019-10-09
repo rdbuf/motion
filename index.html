@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Motion</title>
+        <style>
+            body { margin: 0; }
+            canvas { width: 100%; height: 100% }
+        </style>
+    </head>
+    <body>
+        <script src="js/three.js"></script>
+        <script>
+
+            class Particle {
+                constructor(pos, q, m, velocity = new THREE.Vector3) {
+                    this.pos = pos;
+                    this.q = q;
+                    this.m = m;
+
+                    this.velocity = velocity;
+
+                    this.links = new Map();
+                }
+                link(p) {
+                    length = this.pos.clone().sub(p.pos).length();
+                    this.links.set(p, length);
+                    p.links.set(this, length);
+                }
+                unlink(p) {
+                    this.links.delete(p);
+                    p.links.delete(this);
+                }
+            }
+
+            class Links {
+                constructor() {
+                    this.links = new Map;
+                }
+                has(a) { return this.links.has(a); }
+                get(a) { return this.links.get(a); }
+                set(a, b) { return this.links.set(a, b); }
+
+                link(i1, i2, len) {
+                    if (!this.links.has(i1)) {
+                        this.links.set(i1, new Map);
+                    }
+                    if (!this.links.has(i2)) {
+                        this.links.set(i2, new Map);
+                    }
+                    this.links.get(i1).set(i2, len);
+                    this.links.get(i2).set(i1, len);
+                }
+                unlink(i1, i2) {
+                    this.links.get(i1).delete(i2);
+                    this.links.get(i2).delete(i1);
+                }
+            }
+
+            function proj(a, b) {
+                return b.clone().normalize().multiplyScalar(a.dot(b) / b.length());
+            }
+
+            k = 9e9;
+            function coulomb(p1, p2) {
+                let r = p1.pos.clone().sub(p2.pos);
+                let force = k*p1.q*p2.q / r.length()**2;
+                let result = r.clone().normalize().multiplyScalar(force);
+                return result;
+            }
+
+            function computeForce(i1, particles) {
+                let totforce = new THREE.Vector3(0, 0, 0);
+
+                for (i2 = 0; i2 < particles.length; ++i2) {
+                    if (i2 == i1) { continue; }
+                    let force = coulomb(particles[i1], particles[i2]);
+                    totforce.add(force);
+                    if (links.get(i1).has(i2)) {
+                        const l = links.get(i1).get(i2);
+                        const r = particles[i1].pos.clone().sub(particles[i2].pos);
+                        if (r.length() >= l) {
+                            totforce.sub(proj(force, r));
+                        }
+                    }
+                }
+
+                console.log("|totforce|", totforce.length());
+                return totforce;
+            }
+
+            // hydrogen
+            m = 1.6e-27;
+            q = 1.6e-19;
+            radius = 1.2e-10;
+            d = radius*2;
+            distance = 2.75e-9 * 4;
+            particles = [
+                new Particle(new THREE.Vector3(1, 1, 0).multiplyScalar(distance/2), q, m),
+                new Particle(new THREE.Vector3(-1, 1, 0).multiplyScalar(distance/2), q, m),
+                new Particle(new THREE.Vector3(-1, -1, 0).multiplyScalar(distance/2), q, m),
+                new Particle(new THREE.Vector3(1, -1, 0).multiplyScalar(distance/2), q, m)
+            ];
+
+            links = new Links();
+            links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
+            links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
+            links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
+            links.link(3, 0, particles[3].pos.distanceTo(particles[0].pos));
+
+
+            /* simulation */
+
+            var scene = new THREE.Scene();
+            var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, distance/100, 100*distance);
+            camera.position.z = distance*10;
+
+            var renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+
+            geometry = new THREE.Geometry();
+            material = new THREE.PointsMaterial({
+                color: 0xFFFFFF,
+                size: d*5,
+                blending: THREE.AdditiveBlending,
+                transparent: true
+            });
+
+            for (i = 0; i < particles.length; ++i) {
+                geometry.vertices[i] = particles[i].pos;
+            }
+
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+
+            particleSystem.sortParticles = true;
+
+            function step(dt, solution) {
+                let new_solution = Object.assign([], solution);
+
+                for (i = 0; i < solution.length; ++i) {
+                    let acc = computeForce(i, solution).divideScalar(m);
+                    let p = new_solution[i];
+                    p.velocity.add(acc.multiplyScalar(dt));
+                    p.pos.add(p.velocity.multiplyScalar(dt));
+                }
+
+                return new_solution;
+            }
+
+            function update() {
+                requestAnimationFrame(update);
+
+                let dt = 1e-12;
+                particles = step(dt, particles);
+                // particleSystem.rotation.y += 0.03;
+
+                for (i = 0; i < particles.length; ++i) {
+                    p = particles[i].pos;
+                    geometry.vertices[i].set(p.x, p.y, p.z);
+                    // console.log(geometry.vertices[i]);
+                }
+
+                particleSystem.geometry.verticesNeedUpdate = true;
+                renderer.render(scene, camera);
+            }
+
+            update();
+            
+        </script>
+    </body>
+</html>
