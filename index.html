@@ -83,41 +83,42 @@
                 return totforce;
             }
 
-            function close_enough(a, b, precision=1e-18) {
+            function close_enough(a, b, precision=1e-15) {
                 return Math.abs(a - b) < precision || Math.abs(a / b - 1) < precision;
             }
 
             function relax(particles, links) {
+                let iterations = 0;
                 let adjusted = 1;
+                let saved_particles = particles.clone();
                 while (adjusted) {
+                    iterations += 1;
                     adjusted = false;
-                    for (let i1 = 0; i1 < particles.length; ++i1) {
-                        if (links.has(i1)) {
-                            for (let i2 = 0; i2 < particles.length; ++i2) {
-                                if (i1 == i2) {
-                                    continue;
-                                }
-                                if (links.get(i1).has(i2)) {
-                                    let max_l = links.get(i1).get(i2);
+                    for (let [i1, i2] of _.combinations(_.range(particles.length), 2)) {
+                        if (links.has(i1) && links.get(i1).has(i2)) {
+                            let max_l = links.get(i1).get(i2);
 
-                                    let p1 = particles[i1];
-                                    let p2 = particles[i2];
-                                    let r = p2.pos.clone().sub(p1.pos);
-                                    let act_l = r.length();
-                                    // console.log(act_l);
-                                    if (!close_enough(max_l, act_l)) {
-                                        adjusted = true;
-                                        let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
-                                        // console.log(adjustment);
-                                        p1.pos.add(adjustment);
-                                        p2.pos.sub(adjustment);
-                                    }
-                                }
+                            let p1 = particles[i1];
+                            let p2 = particles[i2];
+                            let r = p2.pos.clone().sub(p1.pos);
+                            let act_l = r.length();
+                            if (!close_enough(max_l, act_l)) {
+                                adjusted = true;
+                                let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
+                                // console.log("factor", (act_l - max_l) / max_l * 100);
+                                p1.pos.add(adjustment);
+                                p2.pos.sub(adjustment);
                             }
                         }
                     }
                 }
 
+                for (let i = 0; i < particles.length; ++i) {
+                    let r = particles[i].pos_prev
+                    particles[i].pos_prev =
+                }
+
+                // console.log("iterations", iterations);
                 return particles;
             }
 
@@ -134,7 +135,7 @@
                     p.pos.add(velocity.multiplyScalar(dt));
 
                     if (i == 0) {
-                        console.log(velocity.length());
+                        // console.log(velocity.length());
                     }
                 }
 
@@ -144,11 +145,12 @@
 
             // углерод
             m = 2e-26;
+            // m = 2e-30;
             q = 1.6e-19;
             radius = 77e-12;
             d = radius*2;
-            distance = 1.42e-10 / 100;
-            dt = 1e-18;
+            distance = 1.42e-10;
+            dt = 1e-15;
 
             let particles = [
                 new Particle(new THREE.Vector3(-1, 1, 0).multiplyScalar(distance/2), q, m),
@@ -158,7 +160,7 @@
             ];
 
             links = new Links();
-            links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
+            // links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
             links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
             links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
             links.link(3, 0, particles[3].pos.distanceTo(particles[0].pos));
