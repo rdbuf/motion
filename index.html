@@ -92,25 +92,30 @@
             }
 
             function relax(particles, links) {
-                for (let i1 = 0; i1 < particles.length; ++i1) {
-                    if (links.has(i1)) {
-                        for (let i2 = 0; i2 < particles.length; ++i2) {
-                            if (i1 == i2) { continue; }
-                            if (links.get(i1).has(i2)) {
-                                let max_l = links.get(i1).get(i2);
+                let adjusted = 1;
+                while (adjusted) {
+                    adjusted = false;
+                    for (let i1 = 0; i1 < particles.length; ++i1) {
+                        if (links.has(i1)) {
+                            for (let i2 = 0; i2 < particles.length; ++i2) {
+                                if (i1 == i2) {
+                                    continue;
+                                }
+                                if (links.get(i1).has(i2)) {
+                                    let max_l = links.get(i1).get(i2);
 
-                                let p1 = particles[i1];
-                                let p2 = particles[i2];
-                                let r = p2.pos.clone().sub(p1.pos);
-                                let act_l = r.length();
-                                console.log(act_l);
-                                if (act_l > max_l) {
-                                    let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
-                                    console.log(adjustment);
-                                    p1.pos.add(adjustment);
-                                    p2.pos.sub(adjustment);
-                                    // console.log("calling relax recursively");
-                                    // return relax(particles, links);
+                                    let p1 = particles[i1];
+                                    let p2 = particles[i2];
+                                    let r = p2.pos.clone().sub(p1.pos);
+                                    let act_l = r.length();
+                                    // console.log(act_l);
+                                    if (act_l > max_l) {
+                                        // adjusted = true;
+                                        let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
+                                        console.log(adjustment);
+                                        p1.pos.add(adjustment);
+                                        p2.pos.sub(adjustment);
+                                    }
                                 }
                             }
                         }
@@ -151,7 +156,7 @@
             ];
 
             links = new Links();
-            // links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
+            links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
             links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
             links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
             links.link(3, 0, particles[3].pos.distanceTo(particles[0].pos));
