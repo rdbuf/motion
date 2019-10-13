@@ -91,6 +91,10 @@
                 return totforce;
             }
 
+            function close_enough(a, b, precision=1e-14) {
+                return Math.abs(a - b) < precision || Math.abs(a / b - 1) < precision;
+            }
+
             function relax(particles, links) {
                 let adjusted = 1;
                 while (adjusted) {
@@ -109,8 +113,8 @@
                                     let r = p2.pos.clone().sub(p1.pos);
                                     let act_l = r.length();
                                     // console.log(act_l);
-                                    if (act_l > max_l) {
-                                        // adjusted = true;
+                                    if (!close_enough(max_l, act_l)) {
+                                        adjusted = true;
                                         let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
                                         console.log(adjustment);
                                         p1.pos.add(adjustment);
@@ -149,14 +153,14 @@
             d = radius*2;
             distance = 1.42e-10;
             let particles = [
-                new Particle(new THREE.Vector3(1, 1, 0).multiplyScalar(distance/2), q, m),
                 new Particle(new THREE.Vector3(-1, 1, 0).multiplyScalar(distance/2), q, m),
-                new Particle(new THREE.Vector3(-1, -1, 0).multiplyScalar(distance/2), q, m),
-                new Particle(new THREE.Vector3(1, -1, 0).multiplyScalar(distance/2), q, m)
+                new Particle(new THREE.Vector3(1, 1, 0).multiplyScalar(distance/2), q, m),
+                new Particle(new THREE.Vector3(1, -1, 0).multiplyScalar(distance/2), q, m),
+                new Particle(new THREE.Vector3(-1, -1, 0).multiplyScalar(distance/2), q, m)
             ];
 
             links = new Links();
-            links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
+            // links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
             links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
             links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
             links.link(3, 0, particles[3].pos.distanceTo(particles[0].pos));
@@ -197,7 +201,7 @@
                 renderer.render(scene, camera);
                 requestAnimationFrame(update);
 
-                let dt = 1e-14;
+                let dt = 1e-16;
                 particles = step(dt, particles);
                 // particleSystem.rotation.y += 0.03;
 
