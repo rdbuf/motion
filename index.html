@@ -14,12 +14,11 @@
         <script>
 
             class Particle {
-                constructor(pos, q, m, velocity = new THREE.Vector3) {
+                constructor(pos, q, m) {
                     this.pos = pos;
+                    this.pos_prev = new THREE.Vector3;
                     this.q = q;
                     this.m = m;
-
-                    this.velocity = velocity;
 
                     this.links = new Map();
                 }
@@ -92,6 +91,52 @@
                 return totforce;
             }
 
+            function relax(particles, links) {
+                for (let i1 = 0; i1 < particles.length; ++i1) {
+                    if (links.has(i1)) {
+                        for (let i2 = 0; i2 < particles.length; ++i2) {
+                            if (i1 == i2) { continue; }
+                            if (links.get(i1).has(i2)) {
+                                let max_l = links.get(i1).get(i2);
+
+                                let p1 = particles[i1];
+                                let p2 = particles[i2];
+                                let r = p2.pos.clone().sub(p1.pos);
+                                let act_l = r.length();
+                                console.log(act_l);
+                                if (act_l > max_l) {
+                                    let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
+                                    console.log(adjustment);
+                                    p1.pos.add(adjustment);
+                                    p2.pos.sub(adjustment);
+                                    // console.log("calling relax recursively");
+                                    // return relax(particles, links);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return particles;
+            }
+
+            function step(dt, solution) {
+                let new_solution = _.cloneDeep(solution);
+
+                for (let i = 0; i < new_solution.length; ++i) {
+                    let p = new_solution[i];
+                    let acc = computeForce(i, solution).divideScalar(m);
+                    let velocity = (p.pos.clone().sub(p.pos_prev)).divideScalar(dt);
+
+                    p.pos_prev = p.pos.clone();
+                    velocity.add(acc.multiplyScalar(dt));
+                    p.pos.add(velocity.multiplyScalar(dt));
+                }
+
+                return relax(new_solution, links);
+                // return new_solution;
+            }
+
             // углерод
             m = 2e-26;
             q = 1.6e-19;
@@ -114,16 +159,16 @@
 
             /* simulation */
 
-            var scene = new THREE.Scene();
-            var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, distance/100, 100*distance);
+            let scene = new THREE.Scene();
+            let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, distance/100, 100*distance);
             camera.position.z = distance*20;
 
-            var renderer = new THREE.WebGLRenderer();
+            let renderer = new THREE.WebGLRenderer();
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
 
-            var tex = new THREE.TextureLoader().load("https://threejs.org/examples/textures/sprites/disc.png");
+            let tex = new THREE.TextureLoader().load("https://threejs.org/examples/textures/sprites/disc.png");
 
             geometry = new THREE.Geometry();
             material = new THREE.PointsMaterial({
@@ -143,19 +188,6 @@
 
             particleSystem.sortParticles = true;
 
-            function step(dt, solution) {
-                let new_solution = _.cloneDeep(solution);
-
-                for (let i = 0; i < new_solution.length; ++i) {
-                    let acc = computeForce(i, solution).divideScalar(m);
-                    let p = new_solution[i];
-                    p.velocity.add(acc.multiplyScalar(dt));
-                    p.pos.add(p.velocity.multiplyScalar(dt));
-                }
-
-                return new_solution;
-            }
-
             function update() {
                 renderer.render(scene, camera);
                 requestAnimationFrame(update);
@@ -165,8 +197,9 @@
                 // particleSystem.rotation.y += 0.03;
 
                 for (i = 0; i < particles.length; ++i) {
-                    p = particles[i].pos;
+                    let p = particles[i].pos;
                     geometry.vertices[i].set(p.x, p.y, p.z);
+                    // console.log(p);
                 }
 
                 particleSystem.geometry.verticesNeedUpdate = true;
