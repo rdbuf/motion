@@ -90,7 +90,13 @@
             function relax(particles, links) {
                 let iterations = 0;
                 let adjusted = 1;
-                let saved_particles = particles.clone();
+
+                let old_r = [];
+                for (let i = 0; i < particles.length; ++i) {
+                    let p = particles[i];
+                    old_r[i] = p.pos.clone().sub(p.pos_prev);
+                }
+
                 while (adjusted) {
                     iterations += 1;
                     adjusted = false;
@@ -103,7 +109,7 @@
                             let r = p2.pos.clone().sub(p1.pos);
                             let act_l = r.length();
                             if (!close_enough(max_l, act_l)) {
-                                adjusted = true;
+                                // adjusted = true;
                                 let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
                                 // console.log("factor", (act_l - max_l) / max_l * 100);
                                 p1.pos.add(adjustment);
@@ -114,8 +120,19 @@
                 }
 
                 for (let i = 0; i < particles.length; ++i) {
-                    let r = particles[i].pos_prev
-                    particles[i].pos_prev =
+                    let p = particles[i];
+                    let r = p.pos.clone().sub(p.pos_prev);
+
+                    // let correct_len = old_velocities[i].clone().projectOnVector(r).length();
+                    // let correct_velocity = proj(old_velocities[i], r).length();
+                    // console.log("correct_len", correct_len);
+                    // pr = proj(old_r[i], r);
+                    if (r.length() != 0) {
+                        pr = old_r[i].clone().projectOnVector(r);
+                        let ratio = (r.length() - pr.length()) / pr.length() * 100;
+                        p.pos_prev = p.pos.clone().sub(r.clone().normalize().multiplyScalar(pr.length()));
+                        console.log(ratio);
+                    }
                 }
 
                 // console.log("iterations", iterations);
@@ -123,24 +140,23 @@
             }
 
             function step(dt, solution) {
-                let new_solution = _.cloneDeep(solution);
+                let dp = [];
 
-                for (let i = 0; i < new_solution.length; ++i) {
-                    let p = new_solution[i];
+                for (let i = 0; i < solution.length; ++i) {
+                    let p = solution[i];
                     let acc = computeForce(i, solution).divideScalar(m);
                     let velocity = (p.pos.clone().sub(p.pos_prev)).divideScalar(dt);
 
                     p.pos_prev = p.pos.clone();
                     velocity.add(acc.multiplyScalar(dt));
-                    p.pos.add(velocity.multiplyScalar(dt));
-
-                    if (i == 0) {
-                        // console.log(velocity.length());
-                    }
+                    dp.push(velocity.multiplyScalar(dt));
                 }
 
-                return relax(new_solution, links);
-                // return new_solution;
+                for (let i = 0; i < solution.length; ++i) {
+                    solution[i].pos.add(dp[i]);
+                }
+
+                return relax(solution, links);
             }
 
             // углерод
@@ -213,13 +229,15 @@
                     // console.log(p);
                 }
 
-                camera.lookAt(particles[2].pos.clone().add(particles[3].pos).multiplyScalar(1/2));
+                let lookat = (particles[2].pos.clone().add(particles[3].pos).multiplyScalar(1/2));
+                camera.position.x = lookat.x;
+                camera.position.y = lookat.y;
 
                 particleSystem.geometry.verticesNeedUpdate = true;
             }
 
             update();
-            
+
         </script>
     </body>
 </html>
