@@ -97,6 +97,8 @@
                 return Math.abs(a - b) < precision || Math.abs(a / b - 1) < precision;
             }
 
+            let period_ctr = 0;
+
             function step(dt, solution) {
                 let dp = [];
                 let new_velocity = [];
@@ -114,6 +116,23 @@
                 for (let i = 0; i < solution.length; ++i) {
                     solution[i].pos.add(dp[i]);
                     solution[i].velocity = new_velocity[i];
+                }
+
+                period_ctr += 1;
+
+                let current_distance = solution[0].pos.clone().sub(solution[1].pos).length();
+                if (close_enough(current_distance, 2*distance, distance/500)) {
+                    results.v = solution[0].velocity.length();
+                    controlKit.update();
+                }
+                if (close_enough(current_distance, distance, distance/500)) {
+                    console.log(solution[0].pos.y - solution[2].pos.y);
+                    if (solution[0].pos.y > solution[2].pos.y) {
+                        period_ctr = 0;
+                    } else if (solution[0].pos.y < solution[2].pos.y) {
+                        results.T = period_ctr * dt * 2;
+                        controlKit.update();
+                    }
                 }
 
                 return solution;
@@ -152,6 +171,8 @@
 
                 controls.reset();
                 camera.position.set(0, 0, distance * 2);
+
+                material.size = distance / 10;
             }
 
             /* simulation */
@@ -183,6 +204,11 @@
 
             let controls = new THREE.OrbitControls( camera, renderer.domElement );
 
+            let results = {
+                T: 0,
+                v: 1e-14
+            };
+
             let controlKit = new ControlKit();
             controlKit.addPanel()
                 .addGroup()
@@ -190,9 +216,12 @@
                 .addStringInput(this, 'm')
                 .addStringInput(this, 'q')
                 .addStringInput(this, 'distance')
+                .addStringInput(this, 'stiffness')
                 .addStringInput(this, 'dt')
                 .addStringInput(this, 'steps_per_frame')
-                .addButton('apply', init);
+                .addButton('apply', init)
+                .addNumberOutput(results, 'T')
+                .addNumberOutput(results, 'v');
 
             // m = 2e-26;
             // q = 1.6e-19;
@@ -215,7 +244,7 @@
             init();
 
             let stats = new Stats();
-            stats.showPanel( 1 ); // 0: fps, 1: ms, 2: mb, 3+: custom
+            stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
             document.body.appendChild(stats.dom);
 
             function update() {
@@ -227,12 +256,10 @@
                 for (let i = 0; i < steps_per_frame; ++i) {
                     particles = step(dt, particles);
                 }
-                // particleSystem.rotation.y += 0.03;
 
                 for (let i = 0; i < particles.length; ++i) {
                     let p = particles[i].pos;
                     geometry.vertices[i].set(p.x, p.y, p.z);
-                    // console.log(p);
                 }
 
                 let lookat = (particles[2].pos.clone().add(particles[3].pos).multiplyScalar(1/2));
@@ -241,6 +268,7 @@
 
                 particleSystem.geometry.verticesNeedUpdate = true;
 
+                
                 stats.end();
             }
 
