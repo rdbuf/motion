@@ -12,13 +12,16 @@
         <script src="js/three.js"></script>
         <script src="js/lodash.js"></script>
         <script src="js/lodash.combinations.js"></script>
+        <script src="js/OrbitControls.js"></script>
+        <script src="js/TrackballControls.js"></script>
+        <script src='js/controlKit.js'></script>
+        <script src='js/stats.js'></script>
         <script>
-            // import THREE from "js/three.js";
 
             class Particle {
                 constructor(pos, q, m) {
                     this.pos = pos;
-                    this.pos_prev = new THREE.Vector3;
+                    this.velocity = new THREE.Vector3;
                     this.q = q;
                     this.m = m;
 
@@ -78,6 +81,13 @@
                     if (i2 === i1) { continue; }
                     let force = coulomb(particles[i1], particles[i2]);
                     totforce.add(force);
+
+                    if (links.has(i1) && links.get(i1).has(i2)) {
+                        let l = links.get(i1).get(i2);
+                        let r = particles[i1].pos.clone().sub(particles[i2].pos);
+                        let dx = r.length() - l;
+                        totforce.sub(r.clone().normalize().multiplyScalar(dx * stiffness));
+                    }
                 }
 
                 return totforce;
@@ -87,153 +97,151 @@
                 return Math.abs(a - b) < precision || Math.abs(a / b - 1) < precision;
             }
 
-            function relax(particles, links) {
-                let iterations = 0;
-                let adjusted = 1;
-
-                let old_r = [];
-                for (let i = 0; i < particles.length; ++i) {
-                    let p = particles[i];
-                    old_r[i] = p.pos.clone().sub(p.pos_prev);
-                }
-
-                while (adjusted) {
-                    iterations += 1;
-                    adjusted = false;
-                    for (let [i1, i2] of _.combinations(_.range(particles.length), 2)) {
-                        if (links.has(i1) && links.get(i1).has(i2)) {
-                            let max_l = links.get(i1).get(i2);
-
-                            let p1 = particles[i1];
-                            let p2 = particles[i2];
-                            let r = p2.pos.clone().sub(p1.pos);
-                            let act_l = r.length();
-                            if (!close_enough(max_l, act_l)) {
-                                // adjusted = true;
-                                let adjustment = r.clone().normalize().multiplyScalar((act_l - max_l) / 2);
-                                // console.log("factor", (act_l - max_l) / max_l * 100);
-                                p1.pos.add(adjustment);
-                                p2.pos.sub(adjustment);
-                            }
-                        }
-                    }
-                }
-
-                for (let i = 0; i < particles.length; ++i) {
-                    let p = particles[i];
-                    let r = p.pos.clone().sub(p.pos_prev);
-
-                    // let correct_len = old_velocities[i].clone().projectOnVector(r).length();
-                    // let correct_velocity = proj(old_velocities[i], r).length();
-                    // console.log("correct_len", correct_len);
-                    // pr = proj(old_r[i], r);
-                    if (r.length() != 0) {
-                        pr = old_r[i].clone().projectOnVector(r);
-                        let ratio = (r.length() - pr.length()) / pr.length() * 100;
-                        p.pos_prev = p.pos.clone().sub(r.clone().normalize().multiplyScalar(pr.length()));
-                        console.log(ratio);
-                    }
-                }
-
-                // console.log("iterations", iterations);
-                return particles;
-            }
-
             function step(dt, solution) {
                 let dp = [];
+                let new_velocity = [];
 
                 for (let i = 0; i < solution.length; ++i) {
                     let p = solution[i];
                     let acc = computeForce(i, solution).divideScalar(m);
-                    let velocity = (p.pos.clone().sub(p.pos_prev)).divideScalar(dt);
+                    let velocity = p.velocity.clone();
 
-                    p.pos_prev = p.pos.clone();
                     velocity.add(acc.multiplyScalar(dt));
-                    dp.push(velocity.multiplyScalar(dt));
+                    dp.push(velocity.clone().multiplyScalar(dt));
+                    new_velocity.push(velocity);
                 }
 
                 for (let i = 0; i < solution.length; ++i) {
                     solution[i].pos.add(dp[i]);
+                    solution[i].velocity = new_velocity[i];
                 }
 
-                return relax(solution, links);
+                return solution;
             }
 
             // углерод
             m = 2e-26;
-            // m = 2e-30;
             q = 1.6e-19;
             radius = 77e-12;
             d = radius*2;
             distance = 1.42e-10;
-            dt = 1e-15;
+            dt = 1e-16;
+            stiffness = 1e6;
+            steps_per_frame = 20;
 
-            let particles = [
-                new Particle(new THREE.Vector3(-1, 1, 0).multiplyScalar(distance/2), q, m),
-                new Particle(new THREE.Vector3(1, 1, 0).multiplyScalar(distance/2), q, m),
-                new Particle(new THREE.Vector3(1, -1, 0).multiplyScalar(distance/2), q, m),
-                new Particle(new THREE.Vector3(-1, -1, 0).multiplyScalar(distance/2), q, m)
-            ];
+            let particles;
+            let links;
 
-            links = new Links();
-            // links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
-            links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
-            links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
-            links.link(3, 0, particles[3].pos.distanceTo(particles[0].pos));
+            function init() {
+                particles = [
+                    new Particle(new THREE.Vector3(-1, 1, 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(1, 1, 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(1, -1, 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(-1, -1, 0).multiplyScalar(distance/2), q, m)
+                ];
 
+                for (i = 0; i < particles.length; ++i) {
+                    geometry.vertices[i] = particles[i].pos;
+                }
+
+                links = new Links();
+                // links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
+                links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
+                links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
+                links.link(3, 0, particles[3].pos.distanceTo(particles[0].pos));
+
+                controls.reset();
+                camera.position.set(0, 0, distance * 2);
+            }
 
             /* simulation */
 
             let scene = new THREE.Scene();
             let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, distance/100, 100*distance);
-            camera.position.z = distance * 2;
 
             let renderer = new THREE.WebGLRenderer();
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-
             let tex = new THREE.TextureLoader().load("https://threejs.org/examples/textures/sprites/disc.png");
 
-            geometry = new THREE.Geometry();
-            material = new THREE.PointsMaterial({
+            let geometry = new THREE.Geometry();
+            let material = new THREE.PointsMaterial({
                 color: 0xFFFFFF,
                 size: distance / 10,
                 blending: THREE.AdditiveBlending,
                 transparent: true,
                 map: tex
             });
-
-            // let trackballControls = new THREE.TrackballControls(camera);
-
-
-            for (i = 0; i < particles.length; ++i) {
-                geometry.vertices[i] = particles[i].pos;
-            }
-
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
-
             particleSystem.sortParticles = true;
+
+            let light = new THREE.PointLight( 0xff0000, 1, 100 );
+            light.position.set(camera.position);
+            scene.add( light );
+
+            let controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+            let controlKit = new ControlKit();
+            controlKit.addPanel()
+                .addGroup()
+                .addSubGroup()
+                .addStringInput(this, 'm')
+                .addStringInput(this, 'q')
+                .addStringInput(this, 'distance')
+                .addStringInput(this, 'dt')
+                .addStringInput(this, 'steps_per_frame')
+                .addButton('apply', init);
+
+            // m = 2e-26;
+            // q = 1.6e-19;
+            // radius = 77e-12;
+            // d = radius*2;
+            // distance = 1.42e-10;
+            // dt = 1e-16;
+            // stiffness = 1e6;
+            // steps_per_frame = 20;
+
+            // controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+            function onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            window.addEventListener('resize', onWindowResize, false);
+
+            init();
+
+            let stats = new Stats();
+            stats.showPanel( 1 ); // 0: fps, 1: ms, 2: mb, 3+: custom
+            document.body.appendChild(stats.dom);
 
             function update() {
                 renderer.render(scene, camera);
                 requestAnimationFrame(update);
 
-                particles = step(dt, particles);
+                stats.begin();
+
+                for (let i = 0; i < steps_per_frame; ++i) {
+                    particles = step(dt, particles);
+                }
                 // particleSystem.rotation.y += 0.03;
 
-                for (i = 0; i < particles.length; ++i) {
+                for (let i = 0; i < particles.length; ++i) {
                     let p = particles[i].pos;
                     geometry.vertices[i].set(p.x, p.y, p.z);
                     // console.log(p);
                 }
 
                 let lookat = (particles[2].pos.clone().add(particles[3].pos).multiplyScalar(1/2));
-                camera.position.x = lookat.x;
-                camera.position.y = lookat.y;
+                // camera.position.x = lookat.x;
+                // camera.position.y = lookat.y;
 
                 particleSystem.geometry.verticesNeedUpdate = true;
+
+                stats.end();
             }
 
             update();
