@@ -121,16 +121,21 @@
                 period_ctr += 1;
 
                 let current_distance = solution[0].pos.clone().sub(solution[1].pos).length();
-                if (close_enough(current_distance, 2*distance, distance/500)) {
-                    results.v = solution[0].velocity.length();
+                if (close_enough(current_distance, 3*distance, distance/500)) {
+                    if (!stick) {
+                        results.v = solution[0].velocity.length();
+                    } else {
+                        results.v = solution[0].velocity.clone().sub(solution[1].velocity).length();
+                    }
+                    results.v = results.v.toFixed(0);
                     controlKit.update();
                 }
                 if (close_enough(current_distance, distance, distance/500)) {
-                    // console.log(solution[0].pos.y - solution[2].pos.y);
                     if (solution[0].pos.y > solution[2].pos.y) {
                         period_ctr = 0;
                     } else if (solution[0].pos.y < solution[2].pos.y) {
                         results.T = period_ctr * dt * 2;
+                        results.T = results.T.toExponential(2);
                         controlKit.update();
                     }
                 }
@@ -146,7 +151,9 @@
             distance = 1.42e-10;
             dt = 1e-16;
             stiffness = 1e6;
-            steps_per_frame = 20;
+            time_scale = 1e-13;
+
+            stick = false;
 
             let particles;
             let links;
@@ -196,11 +203,6 @@
             });
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
-            particleSystem.sortParticles = true;
-
-            let light = new THREE.PointLight( 0xff0000, 1, 100 );
-            light.position.set(camera.position);
-            scene.add( light );
 
             let controls = new THREE.OrbitControls( camera, renderer.domElement );
 
@@ -208,6 +210,9 @@
                 T: 0,
                 v: 1e-14
             };
+
+            fps = 60;
+            actual_time_scale = time_scale;
 
             let controlKit = new ControlKit();
             controlKit.addPanel()
@@ -218,10 +223,19 @@
                 .addStringInput(this, 'distance')
                 .addStringInput(this, 'stiffness')
                 .addStringInput(this, 'dt')
-                .addStringInput(this, 'steps_per_frame')
+                // .addStringInput(this, 'steps_per_frame')
+                .addStringInput(this, 'time_scale')
+                .addCheckbox(this, 'stick', { onChange: function() {
+                    if (!stick) {
+                        camera.position.x = 0;
+                        camera.position.y = 0;
+                    }
+                }})
                 .addButton('apply', init)
-                .addNumberOutput(results, 'T')
-                .addNumberOutput(results, 'v');
+                .addStringOutput(results, 'T')
+                .addStringOutput(results, 'v')
+                .addNumberOutput(this, 'fps')
+                .addStringOutput(this, 'actual_time_scale');
 
             // m = 2e-26;
             // q = 1.6e-19;
@@ -247,12 +261,28 @@
             stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
             document.body.appendChild(stats.dom);
 
+            let start = performance.now();
+
+            let framectr = 0;
+
             function update() {
+                let end = performance.now();
+                fps = 1000 / (end - start);
+
+                framectr += 1;
+
                 renderer.render(scene, camera);
                 requestAnimationFrame(update);
 
                 stats.begin();
 
+                let steps_per_frame = 1/fps * time_scale / dt;
+                steps_per_frame = Math.max(1, Math.min(60, steps_per_frame));
+                actual_time_scale = (steps_per_frame * fps * dt).toExponential(0);
+                if (framectr % 50 == 0) {
+                    framectr = 0;
+                    controlKit.update();
+                }
                 for (let i = 0; i < steps_per_frame; ++i) {
                     particles = step(dt, particles);
                 }
@@ -262,13 +292,15 @@
                     geometry.vertices[i].set(p.x, p.y, p.z);
                 }
 
-                let lookat = (particles[2].pos.clone().add(particles[3].pos).multiplyScalar(1/2));
-                // camera.position.x = lookat.x;
-                // camera.position.y = lookat.y;
+                if (stick) {
+                    let lookat = (particles[2].pos.clone().add(particles[3].pos).multiplyScalar(1 / 2));
+                    camera.position.x = lookat.x;
+                    camera.position.y = lookat.y;
+                }
 
                 particleSystem.geometry.verticesNeedUpdate = true;
 
-                
+                start = performance.now();
                 stats.end();
             }
 
