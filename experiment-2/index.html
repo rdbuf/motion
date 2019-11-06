@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Motion</title>
+        <style>
+            body { margin: 0; }
+            canvas { width: 100%; height: 100%; display: block; }
+        </style>
+    </head>
+    <body>
+        <script src="js/three.js"></script>
+        <script src="js/lodash.js"></script>
+        <script src="js/lodash.combinations.js"></script>
+        <script src="js/OrbitControls.js"></script>
+        <script src="js/TrackballControls.js"></script>
+        <script src='js/controlKit.js'></script>
+        <script src='js/stats.js'></script>
+        <script>
+
+            class Particle {
+                constructor(pos, q, m) {
+                    this.pos = pos;
+                    this.velocity = new THREE.Vector3;
+                    this.q = q;
+                    this.m = m;
+
+                    this.links = new Map();
+                }
+                link(p) {
+                    length = this.pos.clone().sub(p.pos).length();
+                    this.links.set(p, length);
+                    p.links.set(this, length);
+                }
+                unlink(p) {
+                    this.links.delete(p);
+                    p.links.delete(this);
+                }
+            }
+
+            class Links {
+                constructor() {
+                    this.links = new Map;
+                }
+                has(a) { return this.links.has(a); }
+                get(a) { return this.links.get(a); }
+                set(a, b) { return this.links.set(a, b); }
+
+                link(i1, i2, len) {
+                    if (!this.links.has(i1)) {
+                        this.links.set(i1, new Map);
+                    }
+                    if (!this.links.has(i2)) {
+                        this.links.set(i2, new Map);
+                    }
+                    this.links.get(i1).set(i2, len);
+                    this.links.get(i2).set(i1, len);
+                }
+                unlink(i1, i2) {
+                    this.links.get(i1).delete(i2);
+                    this.links.get(i2).delete(i1);
+                }
+            }
+
+            function proj(a, b) {
+                return b.clone().normalize().multiplyScalar(a.dot(b.clone().normalize()));
+            }
+
+            k = 9e9;
+            function coulomb(p1, p2) {
+                let r = p1.pos.clone().sub(p2.pos);
+                let force = k*p1.q*p2.q / r.length()**2;
+                let result = r.clone().normalize().multiplyScalar(force);
+                return result;
+            }
+
+            function computeForce(i1, particles) {
+                let totforce = new THREE.Vector3(0, 0, 0);
+
+                for (let i2 = 0; i2 < particles.length; ++i2) {
+                    if (i2 === i1) { continue; }
+                    let force = coulomb(particles[i1], particles[i2]);
+                    totforce.add(force);
+
+                    if (links.has(i1) && links.get(i1).has(i2)) {
+                        let l = links.get(i1).get(i2);
+                        let r = particles[i1].pos.clone().sub(particles[i2].pos);
+                        let dx = r.length() - l;
+                        totforce.sub(r.clone().normalize().multiplyScalar(dx * stiffness));
+                    }
+                }
+
+                return totforce;
+            }
+
+            function close_enough(a, b, precision=1e-15) {
+                return Math.abs(a - b) < precision || Math.abs(a / b - 1) < precision;
+            }
+
+            let period_ctr = 0;
+
+            function step(dt, solution) {
+                let dp = [];
+                let new_velocity = [];
+
+                for (let i = 0; i < solution.length; ++i) {
+                    let p = solution[i];
+                    let acc = computeForce(i, solution).divideScalar(m);
+                    let velocity = p.velocity.clone();
+
+                    velocity.add(acc.multiplyScalar(dt));
+                    dp.push(velocity.clone().multiplyScalar(dt));
+                    new_velocity.push(velocity);
+                }
+
+                for (let i = 0; i < solution.length; ++i) {
+                    solution[i].pos.add(dp[i]);
+                    solution[i].velocity = new_velocity[i];
+                }
+
+                period_ctr += 1;
+
+                let current_distance = solution[0].pos.clone().sub(solution[1].pos).length();
+                if (close_enough(current_distance, 3*distance, distance/500)) {
+                    if (!stick) {
+                        results.v = solution[0].velocity.length();
+                    } else {
+                        results.v = solution[0].velocity.clone().sub(solution[1].velocity).length();
+                    }
+                    results.v = results.v.toFixed(0);
+                    controlKit.update();
+                }
+                if (close_enough(current_distance, distance, distance/500)) {
+                    if (solution[0].pos.y > solution[2].pos.y) {
+                        period_ctr = 0;
+                    } else if (solution[0].pos.y < solution[2].pos.y) {
+                        results.T = period_ctr * dt * 2;
+                        results.T = results.T.toExponential(2);
+                        controlKit.update();
+                    }
+                }
+
+                return solution;
+            }
+
+            // углерод
+            m = 2e-26;
+            q = 1.6e-19;
+            radius = 77e-12;
+            d = radius*2;
+            distance = 1.42e-10;
+            dt = 4e-18;
+            stiffness = 1e9;
+            time_scale = 1e-14;
+
+            stick = false;
+
+            let pi = Math.PI;
+
+            let particles;
+            let links;
+
+            function init() {
+                particles = [
+                    new Particle(new THREE.Vector3(Math.cos(0*pi/3), Math.sin(0*pi/3), 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(Math.cos(1*pi/3), Math.sin(1*pi/3), 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(Math.cos(2*pi/3), Math.sin(2*pi/3), 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(Math.cos(3*pi/3), Math.sin(3*pi/3), 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(Math.cos(4*pi/3), Math.sin(4*pi/3), 0).multiplyScalar(distance/2), q, m),
+                    new Particle(new THREE.Vector3(Math.cos(5*pi/3), Math.sin(5*pi/3), 0).multiplyScalar(distance/2), q, m),
+                ];
+
+                for (i = 0; i < particles.length; ++i) {
+                    geometry.vertices[i] = particles[i].pos;
+                }
+
+                links = new Links();
+                links.link(0, 1, particles[0].pos.distanceTo(particles[1].pos));
+                // links.link(1, 2, particles[1].pos.distanceTo(particles[2].pos));
+                links.link(2, 3, particles[2].pos.distanceTo(particles[3].pos));
+                links.link(3, 4, particles[3].pos.distanceTo(particles[4].pos));
+                links.link(4, 5, particles[4].pos.distanceTo(particles[5].pos));
+                links.link(5, 0, particles[5].pos.distanceTo(particles[0].pos));
+
+                controls.reset();
+                camera.position.set(0, 0, distance * 2);
+
+                material.size = distance / 10;
+            }
+
+            /* simulation */
+
+            let scene = new THREE.Scene();
+            let camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, distance/100, 100*distance);
+
+            let renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            let tex = new THREE.TextureLoader().load("https://threejs.org/examples/textures/sprites/disc.png");
+
+            let geometry = new THREE.Geometry();
+            let material = new THREE.PointsMaterial({
+                color: 0xFFFFFF,
+                size: distance / 10,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                map: tex
+            });
+            particleSystem = new THREE.Points(geometry, material);
+            scene.add(particleSystem);
+
+            let controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+            let results = {
+                T: 0,
+                v: 1e-14
+            };
+
+            fps = 60;
+            actual_time_scale = time_scale;
+
+            let controlKit = new ControlKit();
+            controlKit.addPanel()
+                .addGroup()
+                .addSubGroup()
+                .addStringInput(this, 'm')
+                .addStringInput(this, 'q')
+                .addStringInput(this, 'distance')
+                .addStringInput(this, 'stiffness')
+                .addStringInput(this, 'dt')
+                // .addStringInput(this, 'steps_per_frame')
+                .addStringInput(this, 'time_scale')
+                .addCheckbox(this, 'stick', { onChange: function() {
+                    if (!stick) {
+                        camera.position.x = 0;
+                        camera.position.y = 0;
+                    }
+                }})
+                .addButton('apply', init)
+                .addStringOutput(results, 'T')
+                .addStringOutput(results, 'v')
+                .addNumberOutput(this, 'fps')
+                .addStringOutput(this, 'actual_time_scale');
+
+            // m = 2e-26;
+            // q = 1.6e-19;
+            // radius = 77e-12;
+            // d = radius*2;
+            // distance = 1.42e-10;
+            // dt = 1e-16;
+            // stiffness = 1e6;
+            // steps_per_frame = 20;
+
+            // controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+            function onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            window.addEventListener('resize', onWindowResize, false);
+
+            init();
+
+            let stats = new Stats();
+            stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+            document.body.appendChild(stats.dom);
+
+            let start = performance.now();
+
+            let framectr = 0;
+
+            function update() {
+                let end = performance.now();
+                fps = 1000 / (end - start);
+
+                framectr += 1;
+
+                renderer.render(scene, camera);
+                requestAnimationFrame(update);
+
+                stats.begin();
+
+                let steps_per_frame = 1/fps * time_scale / dt;
+                steps_per_frame = Math.max(1, Math.min(60, steps_per_frame));
+                actual_time_scale = (steps_per_frame * fps * dt).toExponential(0);
+                if (framectr % 50 == 0) {
+                    framectr = 0;
+                    controlKit.update();
+                }
+                for (let i = 0; i < steps_per_frame; ++i) {
+                    particles = step(dt, particles);
+                }
+
+                for (let i = 0; i < particles.length; ++i) {
+                    let p = particles[i].pos;
+                    geometry.vertices[i].set(p.x, p.y, p.z);
+                }
+
+                if (stick) {
+                    let lookat = (particles[4].pos.clone().add(particles[5].pos).multiplyScalar(1 / 2));
+                    camera.position.x = lookat.x;
+                    camera.position.y = lookat.y;
+                }
+
+                particleSystem.geometry.verticesNeedUpdate = true;
+
+                start = performance.now();
+                stats.end();
+            }
+
+            update();
+
+        </script>
+    </body>
+</html>
